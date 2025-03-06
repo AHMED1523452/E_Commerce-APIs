@@ -1,0 +1,35 @@
+namespace E_Commerce.Data
+{
+    public class Order
+    {
+        //.Has no Foreign Key
+        [Key]
+        [Column("OrderID")]
+        public int OrderID { get; set; }
+        [ForeignKey("UserID")]
+        public int UserID { get; set; }
+        public Users Users { get; set; }
+        public DateTime OrderDate { get; set; }
+        public decimal TotalAmount { get; set; }
+        public string Status { get; set; } //. (Delivered || Shipped || Done)
+        public ICollection<OrderItems> OrderItems { get; set; }
+        public ICollection<Payment> Payments { get; set; }
+    }
+    public class OrderItems
+    {
+        //. Has Two Foreign Key (ProductID with Product Class , ID With Order Class) 
+        [Key]
+        [Column("ID")]
+        public int OrderItemsID { get; set; }
+        [ForeignKey("ID")]
+        public int ID { get; set; }
+        [JsonIgnore]
+        public Order Order { get; set; }
+        [ForeignKey("ProductID")]
+        public int ProductID { get; set; }
+        [JsonIgnore]
+        public Products Product { get; set; }
+        public int Quantity { get; set; }
+        public double Price { get; set; }
+    }
+}
