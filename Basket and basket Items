@@ -1,0 +1,30 @@
+namespace E_Commerce.Data
+{
+    public class Basket
+    {
+        //. Has One Foreign Key (UserID With Users Class) 
+
+        public int ID { get; set; }
+        public string Status { get; set; }
+        [ForeignKey("UserID")]
+        public int UserID { get; set; }
+        public Users Users { get; set; }
+        [JsonIgnore]
+        public ICollection<BasketItems> basketItems { get; set; }
+    }
+    public class BasketItems //. will be Table in Database
+    {
+        //. Has Two Foreign Keys (ProductID With Product Class, ID with Basket)
+        [Key]
+        [Column("BasketID")]
+        public int BasketItemsID { get; set; }
+        [ForeignKey("ID")]
+        public int ID { get; set; } //. will be Foreign Key to Link Basket with BasketItems
+        [JsonIgnore]
+        public Basket Basket { get; set; }
+        public int ProductID { get; set; } //.Foreign Key with Product Table
+        [JsonIgnore]
+        public Products Product { get; set; }
+        public int Quantity { get; set; }
+    }
+}
