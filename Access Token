@@ -1,0 +1,12 @@
+namespace E_Commerce.Authentication
+{
+    public class AccessTokenAttributes
+    {
+        [Column("UserID")]
+        public int UserID { get; set; }
+        public string accessToken { get; set; }
+        public string RefreshToken { get; set; }
+        public DateTime ExpireDate { get; set; }
+        public DateTime IssuedDate { get; set; }
+    }
+}
