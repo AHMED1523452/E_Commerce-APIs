@@ -1,32 +1,3 @@
-using Azure.Core;
-using Azure.Identity;
-using E_Commerce.ApplicationDbContext;
-using E_Commerce.Authentication;
-using E_Commerce.Data;
-using E_Commerce.JwtOptions;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Authorization.Infrastructure;
-using Microsoft.AspNetCore.Components.Forms;
-using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Identity.Data;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Conventions;
-using Microsoft.Extensions.Logging;
-using Microsoft.Identity.Client;
-using Microsoft.IdentityModel.Tokens;
-using System.Data;
-using System.Data.Common;
-using System.IdentityModel.Tokens.Jwt;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Security.Claims;
-using System.Security.Cryptography.Xml;
-using System.Security.Principal;
-using System.Text;
-
 namespace E_Commerce.Controllers
 {
     [ApiController]
@@ -272,6 +243,90 @@ namespace E_Commerce.Controllers
             return Ok("Done!!");
         }
     }
+
+    [ApiController]
+    [Route("api/[Controller]")]
+    [Authorize]
+    public class CategoryAPIs : ControllerBase
+    {
+        public CategoryAPIs(ILogger<CategoryAPIs> logger, AppDbContext dbContext)
+        {
+            Logger = logger;
+            DbContext = dbContext;
+        }
+
+        public ILogger<CategoryAPIs> Logger { get; }
+        public AppDbContext DbContext { get; }
+
+        [HttpGet("Categories")]
+        [Authorize(Roles = "Admin,Customer")]
+        public async Task<ActionResult<IEnumerable<Category>>> GetCategories()
+        {
+            var existingCategory = await DbContext.categories.ToListAsync();
+            return Ok(existingCategory);
+        }
+
+        [HttpGet("Category/{id}")]
+        [Authorize(Roles = "Admin,Customer")]
+        public async Task<IActionResult> GetCategoryByID([FromRoute]int id)
+        {
+            var existingCategory = await DbContext.categories.FirstOrDefaultAsync(op => op.CategoryID == id);
+            if (existingCategory == null)
+                return NotFound("Not exist");
+            return Ok(existingCategory);
+        }
+
+        [HttpPost("Categories")]
+        [Authorize(Roles = "Admin")]
+        public async Task<ActionResult<Category>> CreateCategory(CategoryDTO category)
+        {
+            if (!ModelState.IsValid)
+                return Unauthorized("Enter valid data");
+            var existingCategory = await DbContext.categories.FirstOrDefaultAsync(op => op.CategoryID == category.CategoryID);
+            if (existingCategory != null)
+                return BadRequest("Category already exist");
+            
+            var CategoryDTO = new Category
+               {
+                 CategoryID = category.CategoryID,
+                 CategoryName = category.CategoryName,
+                 Description = category.Description
+              };
+                await DbContext.categories.AddAsync(CategoryDTO);
+                await DbContext.SaveChangesAsync();
+            return Ok(CategoryDTO.CategoryID);
+        }
+
+        [HttpPut("Categories/{id}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<ActionResult<Category>> UpdateCategoryByID([FromRoute] int id, [FromBody] CategoryDTO categoryDTO)
+        {
+            var existingCategory = await DbContext.categories.FirstOrDefaultAsync(op => op.CategoryID == id);
+            if (existingCategory == null)
+                return NotFound("Not exist");
+            existingCategory.Description = categoryDTO.Description;
+            existingCategory.CategoryName = categoryDTO.CategoryName;
+
+            DbContext.categories.Update(existingCategory);
+            await DbContext.SaveChangesAsync();
+
+            return Ok(new { Message = "Category updated successfully", Category = existingCategory });
+        }
+
+        [HttpDelete("Category/{id}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> DeleteByID([FromRoute] int id)
+        {
+            var existingCategory = await DbContext.categories.FirstOrDefaultAsync(op => op.CategoryID == id);
+            if (existingCategory == null)
+                return BadRequest("Category not exist");
+            DbContext.categories.Remove(existingCategory);
+            await DbContext.SaveChangesAsync();
+
+            return Ok("Category removed successfully"); 
+        }
+    }
+
     [ApiController]
     [Route("api/[Controller]")]
     [Authorize]
