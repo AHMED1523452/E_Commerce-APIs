@@ -1,0 +1,59 @@
+using E_Commerce.Authentication;
+using E_Commerce.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Conventions;
+using Microsoft.Extensions.Options;
+using Microsoft.Identity.Client;
+using System.Diagnostics.Contracts;
+
+namespace E_Commerce.ApplicationDbContext
+{
+    public class AppDbContext : DbContext
+    {
+        public AppDbContext(DbContextOptions options) : base( options) { }
+        public DbSet<Users> Users { get; set; }
+        public DbSet<AccessTokenAttributes> Access { get; set; }
+        public DbSet<Basket> Baskets { get; set; }
+        public DbSet<BasketItems> BasketItems { get; set; }
+        public DbSet<OrderItems> OrderItems { get; set; }
+        public DbSet<Order> orders { get; set; }
+        public DbSet<Category> categories { get; set; }
+        public DbSet<Products> Products { get; set; }
+        public DbSet<Payment> Payments { get; set; }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Users>().ToTable("Users").HasKey("UserID");
+            modelBuilder.Entity<AccessTokenAttributes>().ToTable("AccessToken").HasNoKey();
+            modelBuilder.Entity<BasketItems>().ToTable("BasketItems").HasKey("BasketItemsID");
+            modelBuilder.Entity<OrderItems>().ToTable("OrderItems").HasKey("OrderID");
+            modelBuilder.Entity<Category>().ToTable("Category").HasKey("CategoryID");
+            modelBuilder.Entity<Payment>().ToTable("Payment").HasKey("PaymentID");
+
+            modelBuilder.Entity<OrderItems>().HasOne(op => op.Order)
+                .WithMany(op => op.OrderItems).HasForeignKey(op => op.ID).OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<OrderItems>().HasOne(op => op.Product)
+                .WithMany(op => op.OrderItems).HasForeignKey(op => op.ProductID).OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Order>().HasOne(op => op.Users)
+                .WithMany(op => op.Order).HasForeignKey(op => op.UserID).OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<BasketItems>().HasOne(op => op.Basket)
+                .WithMany(op => op.basketItems).HasForeignKey(op => op.ID).OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<BasketItems>().HasOne(op => op.Product)
+                .WithMany(op => op.BasketItems).HasForeignKey(op => op.ProductID).OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Basket>().HasOne(op => op.Users)
+                .WithMany(op => op.Baskets).HasForeignKey(op => op.UserID).OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Products>().HasOne(op => op.Category)
+                .WithMany(op => op.Products).HasForeignKey(op => op.CategoryId).OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Payment>().HasOne(op => op.Order)
+                .WithMany(op => op.Payments).HasForeignKey(op => op.OrderID).OnDelete(DeleteBehavior.Cascade);
+        }
+
+    }
+}
