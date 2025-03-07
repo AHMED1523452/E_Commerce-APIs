@@ -1,0 +1,20 @@
+namespace E_Commerce.MiddleWare
+{
+    public class E_CommerceMiddleware
+    {
+        public E_CommerceMiddleware(ILogger<E_CommerceMiddleware> logger, RequestDelegate next)
+        {
+            Logger = logger;
+            Next = next;
+        }
+
+        public ILogger<E_CommerceMiddleware> Logger { get; }
+        public RequestDelegate Next { get; }
+        public async Task Invoke(HttpContext context)
+        {
+            Logger.LogInformation($"[{context.Request.Method}] To Request {context.Request.Path}");
+            await Next(context);
+            Logger.LogInformation($" Response Status Code [{context.Response.StatusCode}]");
+        }
+    }
+}
