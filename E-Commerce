@@ -3,21 +3,21 @@ namespace E_Commerce.Controllers
     [ApiController]
     [Route("api/[Controller]")]
     [Authorize]
-    public class E_CommerceController : ControllerBase
+    public class Account : ControllerBase
     {
-        public E_CommerceController(ILogger<ControllerBase> logger, AppDbContext dbContext, jwtOptionsAttributes jwtOptions)
+        public Account(ILogger<Account> logger, AppDbContext dbContext, jwtOptionsAttributes jwtOptions)
         {
             Logger = logger;
             DbContext = dbContext;
             JwtOptions = jwtOptions;
         }
-        public ILogger<ControllerBase> Logger { get; }
+        public ILogger<Account> Logger { get; }
         public AppDbContext DbContext { get; }
         public jwtOptionsAttributes JwtOptions { get; }
 
         [HttpPost("Register")]
         [AllowAnonymous]
-        public async Task<IActionResult> Register(Users users)
+        public async Task<IActionResult> Register([FromBody] UserInfo users)
         {
             if (!ModelState.IsValid)
                 return BadRequest("Enter True Or Valid Data");
@@ -33,7 +33,7 @@ namespace E_Commerce.Controllers
 
         [HttpPost("Login")]
         [AllowAnonymous]
-        public async Task<IActionResult> Login(AuthenticationRequest request)
+        public async Task<IActionResult> Login([FromBody] AuthenticationRequest request)
         {
             var ExistingUser = await DbContext.Users.FirstOrDefaultAsync(op => op.FName == request.FName && op.LName == request.LName);
             if (ExistingUser is null || !BCrypt.Net.BCrypt.Verify(request.Password, ExistingUser.Password))
@@ -71,8 +71,24 @@ namespace E_Commerce.Controllers
                 return BadRequest("Token Generation failed");
         }
 
+        [HttpPost("ForgetPassword")]
+        [AllowAnonymous]
+        public async Task<ActionResult<UserInfo>> ForgetPassword([FromBody] AuthForUsersInfoDTO usersInfoDTO)
+        {
+            var existingUser = await DbContext.Users.FirstOrDefaultAsync(op => op.Email == usersInfoDTO.Email);
+            if (existingUser == null || BCrypt.Net.BCrypt.Verify(usersInfoDTO.NewPassword, existingUser.Password))
+                return Unauthorized("Invalid data");
+
+            existingUser.Password = BCrypt.Net.BCrypt.HashPassword(usersInfoDTO.NewPassword);
+
+            DbContext.Users.Update(existingUser);
+            await DbContext.SaveChangesAsync();
+            return Ok(existingUser.UserID);
+        }
+
+
         [HttpPost("LogOut")]
-        [Authorize(Roles = "AdminManger,Client")]
+        [AllowAnonymous]
         public async Task<IActionResult> LogOut()
         {
             var UserIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -91,16 +107,16 @@ namespace E_Commerce.Controllers
     [ApiController]
     [Route("api/[Controller]")]
     [Authorize]
-    public class UsersAPIs : ControllerBase
+    public class Users : ControllerBase
     {
-        public UsersAPIs(AppDbContext dbContext, ILogger<UsersAPIs> logger)
+        public Users(AppDbContext dbContext, ILogger<Users> logger)
         {
             DbContext = dbContext;
             Logger = logger;
         }
 
         public AppDbContext DbContext { get; }
-        public ILogger<UsersAPIs> Logger { get; }
+        public ILogger<Users> Logger { get; }
 
         [HttpGet("Users")]
         [Authorize(Roles = "Admin")]
@@ -247,20 +263,20 @@ namespace E_Commerce.Controllers
     [ApiController]
     [Route("api/[Controller]")]
     [Authorize]
-    public class CategoryAPIs : ControllerBase
+    public class Category : ControllerBase
     {
-        public CategoryAPIs(ILogger<CategoryAPIs> logger, AppDbContext dbContext)
+        public Category(ILogger<Category> logger, AppDbContext dbContext)
         {
             Logger = logger;
             DbContext = dbContext;
         }
 
-        public ILogger<CategoryAPIs> Logger { get; }
+        public ILogger<Category> Logger { get; }
         public AppDbContext DbContext { get; }
 
         [HttpGet("Categories")]
         [Authorize(Roles = "Admin,Customer")]
-        public async Task<ActionResult<IEnumerable<Category>>> GetCategories()
+        public async Task<ActionResult<IEnumerable<Categories>>> GetCategories()
         {
             var existingCategory = await DbContext.categories.ToListAsync();
             return Ok(existingCategory);
@@ -278,7 +294,7 @@ namespace E_Commerce.Controllers
 
         [HttpPost("Categories")]
         [Authorize(Roles = "Admin")]
-        public async Task<ActionResult<Category>> CreateCategory(CategoryDTO category)
+        public async Task<ActionResult<Categories>> CreateCategory(CategoryDTO category)
         {
             if (!ModelState.IsValid)
                 return Unauthorized("Enter valid data");
@@ -286,7 +302,7 @@ namespace E_Commerce.Controllers
             if (existingCategory != null)
                 return BadRequest("Category already exist");
             
-            var CategoryDTO = new Category
+            var CategoryDTO = new Categories
                {
                  CategoryID = category.CategoryID,
                  CategoryName = category.CategoryName,
@@ -299,7 +315,7 @@ namespace E_Commerce.Controllers
 
         [HttpPut("Categories/{id}")]
         [Authorize(Roles = "Admin")]
-        public async Task<ActionResult<Category>> UpdateCategoryByID([FromRoute] int id, [FromBody] CategoryDTO categoryDTO)
+        public async Task<ActionResult<Categories>> UpdateCategoryByID([FromRoute] int id, [FromBody] CategoryDTO categoryDTO)
         {
             var existingCategory = await DbContext.categories.FirstOrDefaultAsync(op => op.CategoryID == id);
             if (existingCategory == null)
@@ -330,10 +346,10 @@ namespace E_Commerce.Controllers
     [ApiController]
     [Route("api/[Controller]")]
     [Authorize]
-    public class BasketAPIs : ControllerBase
+    public class Basket : ControllerBase
     {
 
-        public BasketAPIs(ILogger<Basket> logger, AppDbContext dbContext)
+        public Basket(ILogger<Basket> logger, AppDbContext dbContext)
         {
             Logger = logger;
             DbContext = dbContext;
@@ -399,7 +415,7 @@ namespace E_Commerce.Controllers
                 .FirstOrDefault(op => op.UserID == userid);
             if (ExistingBasket is not null)
                 return BadRequest("Data already exist");
-            var basket = new Basket
+            var basket = new Baskets
             {
                 UserID = ExistingBasket.UserID,
                 basketItems = new List<BasketItems>()
@@ -492,11 +508,11 @@ namespace E_Commerce.Controllers
     [ApiController]
     [Authorize]
     [Route("api/[Controller]")]
-    public class OrderAPIs : ControllerBase
+    public class Order : ControllerBase
     {
-        private readonly ILogger<OrderAPIs> Logger;
+        private readonly ILogger<Order> Logger;
 
-        public OrderAPIs(ILogger<OrderAPIs> logger , AppDbContext dbContext)
+        public Order(ILogger<Order> logger , AppDbContext dbContext)
         {
             Logger = logger;
             DbContext = dbContext;
@@ -528,7 +544,7 @@ namespace E_Commerce.Controllers
 
         [HttpGet("Orders")]
         [Authorize(Roles = "Admin")]
-        public async Task<ActionResult<IEnumerable<Order>>> GetOrders()
+        public async Task<ActionResult<IEnumerable<Orders>>> GetOrders()
         {
             var existingOrders = await DbContext.orders.ToListAsync();
             if (existingOrders == null)
@@ -540,7 +556,7 @@ namespace E_Commerce.Controllers
         [Authorize(Roles = "Customer")]
         public async Task<ActionResult<int>> CreateNewOrder(OrderDTO orderDTO)
         {   
-            var order = new Order
+            var order = new Orders
             {
                 OrderDate = orderDTO.OrderDate,
                 Status = orderDTO.Status,
