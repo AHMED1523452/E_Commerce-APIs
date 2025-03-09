@@ -76,16 +76,35 @@ namespace E_Commerce.Controllers
         public async Task<ActionResult<UserInfo>> ForgetPassword([FromBody] AuthForUsersInfoDTO usersInfoDTO)
         {
             var existingUser = await DbContext.Users.FirstOrDefaultAsync(op => op.Email == usersInfoDTO.Email);
-            if (existingUser == null || BCrypt.Net.BCrypt.Verify(usersInfoDTO.NewPassword, existingUser.Password))
-                return Unauthorized("Invalid data");
+            try
+            {
+                if (existingUser == null || BCrypt.Net.BCrypt.Verify(usersInfoDTO.NewPassword, existingUser.Password))
+                    return Unauthorized("Invalid data");
+                if (usersInfoDTO.NewPassword != usersInfoDTO.ConfirmNewpassword)
+                    return BadRequest("Invalid new password");
+                else
+                {
+                    existingUser.Password = BCrypt.Net.BCrypt.HashPassword(usersInfoDTO.NewPassword);
 
-            existingUser.Password = BCrypt.Net.BCrypt.HashPassword(usersInfoDTO.NewPassword);
-
-            DbContext.Users.Update(existingUser);
-            await DbContext.SaveChangesAsync();
+                    DbContext.Users.Update(existingUser);
+                    await DbContext.SaveChangesAsync();
+                }
+            }catch(Exception ex)
+            {
+                Console.WriteLine($"{ex.Message}");
+            }
             return Ok(existingUser.UserID);
         }
 
+        [HttpPut("ResetPassword")]
+        [AllowAnonymous]
+        public async Task<IActionResult> ResetPassword(ResetPasswordDTO resetPassword)
+        {
+            var existingUserEmail = await DbContext.Users.FirstOrDefaultAsync(op => op.Email == resetPassword.Email);
+            if (existingUserEmail == null)
+                return NotFound("User email not exist");
+
+        }
 
         [HttpPost("LogOut")]
         [AllowAnonymous]
