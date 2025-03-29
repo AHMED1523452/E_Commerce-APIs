@@ -96,15 +96,15 @@ namespace E_Commerce.Controllers
             return Ok(existingUser.UserID);
         }
 
-        [HttpPut("ResetPassword")]
-        [AllowAnonymous]
-        public async Task<IActionResult> ResetPassword(ResetPasswordDTO resetPassword)
-        {
-            var existingUserEmail = await DbContext.Users.FirstOrDefaultAsync(op => op.Email == resetPassword.Email);
-            if (existingUserEmail == null)
-                return NotFound("User email not exist");
+        //[HttpPut("ResetPassword")]
+        //[AllowAnonymous]
+        //public async Task<IActionResult> ResetPassword(ResetPasswordDTO resetPassword)
+        //{
+        //    var existingUserEmail = await DbContext.Users.FirstOrDefaultAsync(op => op.Email == resetPassword.Email);
+        //    if (existingUserEmail == null)
+        //        return NotFound("User email not exist");
 
-        }
+        //}
 
         [HttpPost("LogOut")]
         [AllowAnonymous]
@@ -187,6 +187,20 @@ namespace E_Commerce.Controllers
             DbContext.Users.Update(ExistingUser);
             await DbContext.SaveChangesAsync();
             return Ok("Updated Successfully");
+        }
+
+        [HttpDelete("Account")]
+        [Authorize(Roles = "Admin")]
+        public async Task<ActionResult<IEnumerable<UserInfo>>> DeleteAllAccounts()
+        {
+            var DeletingAllAccounts = await DbContext.Users.ToListAsync();
+            if (DeletingAllAccounts == null)
+            {
+                return BadRequest("Table is Empty!!");
+            }
+            DbContext.Users.RemoveRange(DeletingAllAccounts);
+            await DbContext.SaveChangesAsync();
+            return Ok("Done!!");
         }
 
         [HttpDelete("User/{id}")]
