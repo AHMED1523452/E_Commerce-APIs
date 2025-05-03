@@ -15,31 +15,40 @@ namespace E_Commerce.Controllers
         public AppDbContext DbContext { get; }
         public jwtOptionsAttributes JwtOptions { get; }
 
-        [HttpPost("Register")]
+        [HttpPost("SignUp")]
         [AllowAnonymous]
-        public async Task<IActionResult> Register([FromBody] UserInfo users)
+        public async Task<ActionResult<UserInfo>> Register([FromBody] UserDTO users)
         {
             if (!ModelState.IsValid)
-                return BadRequest("Enter True Or Valid Data");
-            var ExistingUser = await DbContext.Users.FirstOrDefaultAsync(op => op.FName == users.FName && op.LName == users.LName);
-            if (ExistingUser is null || !BCrypt.Net.BCrypt.Verify(users.Password, ExistingUser.Password))
-                return NotFound("UserName[FName Or LName] Or Password");
-
-            users.Password = BCrypt.Net.BCrypt.HashPassword(users.Password);
-            await DbContext.Users.AddAsync(users);
+                return BadRequest("Invalid data entered");
+            var existingUser = await DbContext.UsersInfo.FirstOrDefaultAsync(op => op.UserID == users.UserID);
+            var user = new UserInfo
+            {
+                UserID = users.UserID,
+                FName = users.FName,
+                LName = users.LName,
+                Email = users.Email,
+                Role = users.Role
+            };
+            if (existingUser != null)
+                return BadRequest("This User is already exist");
+            user.Password = BCrypt.Net.BCrypt.HashPassword(users.Password);
+            await DbContext.UsersInfo.AddAsync(user);
             await DbContext.SaveChangesAsync();
-            return Ok("Done!!");
+            return Ok(user.UserID);
         }
 
         [HttpPost("Login")]
         [AllowAnonymous]
         public async Task<IActionResult> Login([FromBody] AuthenticationRequest request)
         {
-            var ExistingUser = await DbContext.Users.FirstOrDefaultAsync(op => op.FName == request.FName && op.LName == request.LName);
+            var ExistingUser = await DbContext.UsersInfo.FirstOrDefaultAsync(op => op.FName == request.FName && op.LName == request.LName);
             if (ExistingUser is null || !BCrypt.Net.BCrypt.Verify(request.Password, ExistingUser.Password))
                 return NotFound("UserName Or Password is InValid");
 
             var tokenHandler = new JwtSecurityTokenHandler();
+            if (string.IsNullOrEmpty(JwtOptions.SigningKey)) //. make sure that signing key is not null before using it in SymmetricSecurity 
+                throw new ArgumentNullException("Signing key", "Signing key is null");
             var tokenDescriptor = new SecurityTokenDescriptor
             {
                 Issuer = JwtOptions.Issuer,
@@ -50,10 +59,11 @@ namespace E_Commerce.Controllers
                     new Claim(ClaimTypes.Name, request.FName),
                     new Claim(ClaimTypes.NameIdentifier, ExistingUser.UserID.ToString()),
                     new Claim(ClaimTypes.Role, "Customer"),
-                    new Claim(ClaimTypes.Role, "Admin")
-                } ) ,
+                    new Claim(ClaimTypes.Role, "Admin") //. both of Customer and Admin only can access the API
+                }),
                 Expires = DateTime.UtcNow.AddMinutes(15)
             };
+            
             var SecurityToken = tokenHandler.CreateToken(tokenDescriptor);
 
             var Accesstoken = tokenHandler.WriteToken(SecurityToken);
@@ -64,18 +74,18 @@ namespace E_Commerce.Controllers
                 accessToken = BCrypt.Net.BCrypt.HashString(Accesstoken),//. for any hacker can't deal with the database
                 ExpireDate = expirationDate
             };
-            await DbContext.Access.AddAsync(attribute);
+            await DbContext.AccessToken.AddAsync(attribute);
+            await DbContext.SaveChangesAsync();
             if (expirationDate > DateTime.UtcNow) //. this condition will be continue for Date of Expiration Date (30 days)
-                return Ok($"AccessToken : `{attribute.accessToken}`,RefreshToken : `{attribute.RefreshToken}` ");
-            else
-                return BadRequest("Token Generation failed");
+                return Ok($"accessToken : `{attribute.accessToken}`,RefreshToken : `{attribute.RefreshToken}` ");
+            return BadRequest("Token Generation failed");
         }
 
         [HttpPost("ForgetPassword")]
         [AllowAnonymous]
-        public async Task<ActionResult<UserInfo>> ForgetPassword([FromBody] AuthForUsersInfoDTO usersInfoDTO)
+        public async Task<IActionResult> ForgetPassword([FromBody] AuthForUsersInfoDTO usersInfoDTO)
         {
-            var existingUser = await DbContext.Users.FirstOrDefaultAsync(op => op.Email == usersInfoDTO.Email);
+            var existingUser = await DbContext.UsersInfo.FirstOrDefaultAsync(op => op.Email == usersInfoDTO.Email);
             try
             {
                 if (existingUser == null || BCrypt.Net.BCrypt.Verify(usersInfoDTO.NewPassword, existingUser.Password))
@@ -86,40 +96,36 @@ namespace E_Commerce.Controllers
                 {
                     existingUser.Password = BCrypt.Net.BCrypt.HashPassword(usersInfoDTO.NewPassword);
 
-                    DbContext.Users.Update(existingUser);
+                    DbContext.UsersInfo.Update(existingUser);
                     await DbContext.SaveChangesAsync();
                 }
             }catch(Exception ex)
             {
                 Console.WriteLine($"{ex.Message}");
             }
-            return Ok(existingUser.UserID);
+            return Ok("Done!!");
         }
-
-        //[HttpPut("ResetPassword")]
-        //[AllowAnonymous]
-        //public async Task<IActionResult> ResetPassword(ResetPasswordDTO resetPassword)
-        //{
-        //    var existingUserEmail = await DbContext.Users.FirstOrDefaultAsync(op => op.Email == resetPassword.Email);
-        //    if (existingUserEmail == null)
-        //        return NotFound("User email not exist");
-
-        //}
 
         [HttpPost("LogOut")]
         [AllowAnonymous]
         public async Task<IActionResult> LogOut()
         {
-            var UserIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (UserIdClaim is null || int.TryParse(UserIdClaim, out int userid))
+            //. that will get the UserId from claim that carrying the details of the current User
+            var UserIdClaim = HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;  
+
+            if (UserIdClaim == null || !int.TryParse(UserIdClaim, out int userid))
                 return Unauthorized("You are not allowed to access");
-            var AccessToken = await DbContext.Access.FirstOrDefaultAsync(op => op.UserID == userid);
-            if (AccessToken != null)
+            var accessToken = await DbContext.AccessToken.FirstOrDefaultAsync(op => op.UserID == userid);
+            if (accessToken != null) //. should take access token before doing the Logout process
             {
-                DbContext.Access.Remove(AccessToken);
+                DbContext.AccessToken.Remove(accessToken); //. here will delete the access token from the DB after Validation process
                 await DbContext.SaveChangesAsync();
+                return Ok(new
+                {
+                    message = "logged out Successfully"
+                });
             }
-            return Ok("Logged out Successfully");
+            return BadRequest(new { message = "No Active session found" } );
         }
     }
 
@@ -137,11 +143,11 @@ namespace E_Commerce.Controllers
         public AppDbContext DbContext { get; }
         public ILogger<Users> Logger { get; }
 
-        [HttpGet("Users")]
+        [HttpGet("UsersInfo")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetUsers()
         {
-            var ExistingUsers = await DbContext.Users.ToListAsync();
+            var ExistingUsers = await DbContext.UsersInfo.ToListAsync();
             return Ok(ExistingUsers);
         }
 
@@ -149,17 +155,17 @@ namespace E_Commerce.Controllers
         [Authorize(Roles = "Admin,Customer")]
         public async Task<IActionResult> GetUserByID(int id)
         {
-            var ExistingUser = await DbContext.Users.FirstOrDefaultAsync(op => op.UserID == id);
+            var ExistingUser = await DbContext.UsersInfo.FirstOrDefaultAsync(op => op.UserID == id);
             if (ExistingUser is null)
                 return NotFound($"User With ID : `{id}` is not Exist");
             return Ok(ExistingUser);
         }
 
-        [HttpPut("Users/{id}")]
+        [HttpPut("UsersInfo/{id}")]
         [Authorize("Admin,Customer")]
         public async Task<IActionResult> UpdateUserInfo(int id, [FromBody] UpdateUserDTO userDTO)
         {
-            var ExistingUser = await DbContext.Users.FirstOrDefaultAsync(op => op.UserID == id);
+            var ExistingUser = await DbContext.UsersInfo.FirstOrDefaultAsync(op => op.UserID == id);
             if (ExistingUser is null)
                 return NotFound("User is not exist");
             var currentId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
@@ -184,21 +190,21 @@ namespace E_Commerce.Controllers
                     return BadRequest("Invalid Old Password, Enter Valid Data");
                 ExistingUser.Password = BCrypt.Net.BCrypt.HashPassword(userDTO.Password);
             }
-            DbContext.Users.Update(ExistingUser);
+            DbContext.UsersInfo.Update(ExistingUser);
             await DbContext.SaveChangesAsync();
             return Ok("Updated Successfully");
         }
 
         [HttpDelete("Account")]
-        [Authorize(Roles = "Admin")]
+        [AllowAnonymous]
         public async Task<ActionResult<IEnumerable<UserInfo>>> DeleteAllAccounts()
         {
-            var DeletingAllAccounts = await DbContext.Users.ToListAsync();
+            var DeletingAllAccounts = await DbContext.UsersInfo.ToListAsync();
             if (DeletingAllAccounts == null)
             {
                 return BadRequest("Table is Empty!!");
             }
-            DbContext.Users.RemoveRange(DeletingAllAccounts);
+            DbContext.UsersInfo.RemoveRange(DeletingAllAccounts);
             await DbContext.SaveChangesAsync();
             return Ok("Done!!");
         }
@@ -207,10 +213,10 @@ namespace E_Commerce.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteUserByID(int id)
         {
-            var ExistingUser = await DbContext.Users.FirstOrDefaultAsync(op => op.UserID == id);
+            var ExistingUser = await DbContext.UsersInfo.FirstOrDefaultAsync(op => op.UserID == id);
             if (ExistingUser is null)
                 return NotFound("Not Exist");
-            DbContext.Users.Remove(ExistingUser);
+            DbContext.UsersInfo.Remove(ExistingUser);
             await DbContext.SaveChangesAsync();
             return Ok("User Removed Successfully");
         }
@@ -395,7 +401,7 @@ namespace E_Commerce.Controllers
         [Authorize("Customer ")]
         public async Task<ActionResult<BasketDTO>> GetBasketUser()
         {
-            int userid = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);//UserId from AccessToken
+            int userid = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);//UserId from accessToken
             var ExistingBasket = DbContext.Baskets.Include(op => op.basketItems)
                 .ThenInclude(bi => bi.Product).FirstOrDefault(op => op.UserID == userid);
             if (ExistingBasket is null)
@@ -661,3 +667,4 @@ namespace E_Commerce.Controllers
         }
     } 
 }
+
