@@ -5,14 +5,16 @@ namespace E_Commerce.Controllers
     [Authorize]
     public class Account : ControllerBase
     {
-        public Account(ILogger<Account> logger, AppDbContext dbContext, jwtOptionsAttributes jwtOptions)
+        public Account(ILogger<Account> logger, AppDbContext dbContext, TokenService tokenService, IOptions<jwtOptionsAttributes> jwtOptions)
         {
             Logger = logger;
             DbContext = dbContext;
-            JwtOptions = jwtOptions;
+            TokenService = tokenService;
+            JwtOptions = jwtOptions.Value;
         }
         public ILogger<Account> Logger { get; }
         public AppDbContext DbContext { get; }
+        public TokenService TokenService { get; }
         public jwtOptionsAttributes JwtOptions { get; }
 
         [HttpPost("SignUp")]
@@ -21,18 +23,18 @@ namespace E_Commerce.Controllers
         {
             if (!ModelState.IsValid)
                 return BadRequest("Invalid data entered");
-            var existingUser = await DbContext.UsersInfo.FirstOrDefaultAsync(op => op.UserID == users.UserID);
+            var existingUser = await DbContext.UsersInfo.FirstOrDefaultAsync(op => op.UserName == users.UserName);
             var user = new UserInfo
             {
-                UserID = users.UserID,
-                FName = users.FName,
-                LName = users.LName,
+                UserName = users.UserName,
                 Email = users.Email,
                 Role = users.Role
             };
             if (existingUser != null)
                 return BadRequest("This User is already exist");
+
             user.Password = BCrypt.Net.BCrypt.HashPassword(users.Password);
+
             await DbContext.UsersInfo.AddAsync(user);
             await DbContext.SaveChangesAsync();
             return Ok(user.UserID);
@@ -42,43 +44,56 @@ namespace E_Commerce.Controllers
         [AllowAnonymous]
         public async Task<IActionResult> Login([FromBody] AuthenticationRequest request)
         {
-            var ExistingUser = await DbContext.UsersInfo.FirstOrDefaultAsync(op => op.FName == request.FName && op.LName == request.LName);
+            var ExistingUser = await DbContext.UsersInfo.FirstOrDefaultAsync(op => op.UserName == request.UserName && op.Email == request.Email );
             if (ExistingUser is null || !BCrypt.Net.BCrypt.Verify(request.Password, ExistingUser.Password))
                 return NotFound("UserName Or Password is InValid");
 
             var tokenHandler = new JwtSecurityTokenHandler();
+            //. don't forget to add(builder.Services.AddSingleton<JwtOptionsAttributes>()) in the start Up file
             if (string.IsNullOrEmpty(JwtOptions.SigningKey)) //. make sure that signing key is not null before using it in SymmetricSecurity 
                 throw new ArgumentNullException("Signing key", "Signing key is null");
-            var tokenDescriptor = new SecurityTokenDescriptor
-            {
-                Issuer = JwtOptions.Issuer,
-                Audience = JwtOptions.Audience,
-                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtOptions.SigningKey)),SecurityAlgorithms.Sha256),
-                Subject = new System.Security.Claims.ClaimsIdentity(new Claim[]
-                {
-                    new Claim(ClaimTypes.Name, request.FName),
-                    new Claim(ClaimTypes.NameIdentifier, ExistingUser.UserID.ToString()),
-                    new Claim(ClaimTypes.Role, "Customer"),
-                    new Claim(ClaimTypes.Role, "Admin") //. both of Customer and Admin only can access the API
-                }),
-                Expires = DateTime.UtcNow.AddMinutes(15)
-            };
-            
-            var SecurityToken = tokenHandler.CreateToken(tokenDescriptor);
+            var accessToken = TokenService.CreateAccessToken(ExistingUser);
+            var refreshToken = TokenService.CreateRefreshToken();
 
-            var Accesstoken = tokenHandler.WriteToken(SecurityToken);
             Logger.LogCritical("something is InValid in LogIn API");
             var expirationDate = DateTime.UtcNow.AddDays(30);
+
             var attribute = new AccessTokenAttributes
             {
-                accessToken = BCrypt.Net.BCrypt.HashString(Accesstoken),//. for any hacker can't deal with the database
-                ExpireDate = expirationDate
+                UserID = ExistingUser.UserID,
+                accessToken = BCrypt.Net.BCrypt.HashString(accessToken),//. for any hacker can't deal with the database,
+                ExpireDate = expirationDate,
+                IssuedDate = DateTime.UtcNow
             };
+            attribute.RefreshToken = refreshToken;
             await DbContext.AccessToken.AddAsync(attribute);
             await DbContext.SaveChangesAsync();
-            if (expirationDate > DateTime.UtcNow) //. this condition will be continue for Date of Expiration Date (30 days)
-                return Ok($"accessToken : `{attribute.accessToken}`,RefreshToken : `{attribute.RefreshToken}` ");
-            return BadRequest("Token Generation failed");
+            return Ok(new
+            {
+                accessToken,
+                refreshToken
+            });
+        }
+
+        [HttpPost("RefreshToken")]
+        [AllowAnonymous]
+        public async Task<ActionResult<TokenService>> RefreshToken(AccessTokenAttributes access)
+        {
+            var tokenUser = await DbContext.AccessToken.Include(op => op.user)
+                .FirstOrDefaultAsync(op => op.RefreshToken == access.RefreshToken);
+            if (tokenUser == null || DateTime.UtcNow < access.ExpireDate)
+                return Unauthorized("Not expired until now");
+
+            var NewAccessToken = TokenService.CreateAccessToken(tokenUser.user);
+            var NewRefreshToken = TokenService.CreateRefreshToken();
+
+            tokenUser.accessToken = NewAccessToken;
+            tokenUser.RefreshToken = NewRefreshToken;
+            tokenUser.ExpireDate = DateTime.UtcNow.AddDays(15);
+            tokenUser.IssuedDate = DateTime.UtcNow;
+            await DbContext.SaveChangesAsync();
+
+            return Ok(NewRefreshToken);
         }
 
         [HttpPost("ForgetPassword")]
@@ -116,9 +131,9 @@ namespace E_Commerce.Controllers
             if (UserIdClaim == null || !int.TryParse(UserIdClaim, out int userid))
                 return Unauthorized("You are not allowed to access");
             var accessToken = await DbContext.AccessToken.FirstOrDefaultAsync(op => op.UserID == userid);
-            if (accessToken != null) //. should take access token before doing the Logout process
+            if (accessToken != null) //. should take access tokenUser before doing the Logout process
             {
-                DbContext.AccessToken.Remove(accessToken); //. here will delete the access token from the DB after Validation process
+                DbContext.AccessToken.Remove(accessToken); //. here will delete the access tokenUser from the DB after Validation process
                 await DbContext.SaveChangesAsync();
                 return Ok(new
                 {
@@ -176,11 +191,10 @@ namespace E_Commerce.Controllers
             if (currentRole != "Customer" && ExistingUser.Role != "Admin")
                 return BadRequest("You are not allowed to change your role");
 
-            ExistingUser.FName = userDTO.FName;
-            ExistingUser.LName = userDTO.LName;
+            ExistingUser.UserName = userDTO.UserName;
             ExistingUser.Email = userDTO.Email;
             ExistingUser.Role = userDTO.Role;
-            if (!string.IsNullOrEmpty(userDTO.Password))
+            if (!string.IsNullOrEmpty(userDTO.NewPassword))
             {
                 if (string.IsNullOrEmpty(userDTO.OldPassword))
                 {
@@ -188,7 +202,7 @@ namespace E_Commerce.Controllers
                 }
                 if (!BCrypt.Net.BCrypt.Verify(userDTO.OldPassword, ExistingUser.Password))//.make sure on the Old password after the Client entered the Old password
                     return BadRequest("Invalid Old Password, Enter Valid Data");
-                ExistingUser.Password = BCrypt.Net.BCrypt.HashPassword(userDTO.Password);
+                ExistingUser.Password = BCrypt.Net.BCrypt.HashPassword(userDTO.NewPassword);
             }
             DbContext.UsersInfo.Update(ExistingUser);
             await DbContext.SaveChangesAsync();
