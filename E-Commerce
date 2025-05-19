@@ -80,7 +80,7 @@ namespace E_Commerce.Controllers
         public async Task<ActionResult<TokenService>> RefreshToken(AccessTokenAttributes access)
         {
             var tokenUser = await DbContext.AccessToken.Include(op => op.user)
-                .FirstOrDefaultAsync(op => op.RefreshToken == access.RefreshToken);
+                .FirstOrDefaultAsync(op => op.RefreshToken == tokenUser.RefreshToken);
             if (tokenUser == null || DateTime.UtcNow < access.ExpireDate)
                 return Unauthorized("Not expired until now");
 
